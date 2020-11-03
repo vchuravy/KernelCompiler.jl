@@ -1,0 +1,10 @@
+name = "KernelCompiler"
+uuid = "74110905-49e5-4c86-8e18-cc3646b459d6"
+authors = ["Valentin Churavy <v.churavy@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+LLVM = "929cbde3-209d-540e-8aea-75f648917ca0"
+
+[compat]
+julia = "1.6"
