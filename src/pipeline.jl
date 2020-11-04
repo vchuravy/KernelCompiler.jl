@@ -3,7 +3,7 @@
 
 # https://github.com/JuliaLang/julia/blob/2eb5da0e25756c33d1845348836a0a92984861ac/src/aotcompile.cpp#L603
 function addTargetPasses!(pm, tm)
-    add_library_info!(pm, triple(tm))
+    add_library_info!(pm, LLVM.triple(tm))
     add_transform_info!(pm, tm)
 end
 
@@ -135,12 +135,15 @@ function addOptimizationPasses!(pm, tm, opt_level, lower_intrinsics, dump_native
     end
     # TODO: createCombineMulAdd
     # TODO: createDivRemPairstm[]
+end
+
+function addMachinePasses!(pm, tm)
     # TODO: createDemoteFloat16Pass
     # TODO: createGVNPass
 end
 
 function run_pipeline!(mod::LLVM.Module)
-    ModulePassManager() do pm
+    LLVM.ModulePassManager() do pm
         addTargetPasses!(pm, tm[])
         addOptimizationPasses!(pm, tm[], 3, true, false)
         addMachinePasses!(pm, tm[])

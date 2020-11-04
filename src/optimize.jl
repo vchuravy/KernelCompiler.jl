@@ -10,7 +10,6 @@ end
 import Core.Compiler: CodeInfo, convert_to_ircode, copy_exprargs, slot2reg, compact!, coverage_enabled, adce_pass!
 import Core.Compiler: ssa_inlining_pass!, getfield_elim_pass!, type_lift_pass!, verify_ir, verify_linetable
 function run_passes(ci::CodeInfo, nargs::Int, sv::OptimizationState)
-    @info "Running passes"
     preserve_coverage = coverage_enabled(sv.mod)
     ir = convert_to_ircode(ci, copy_exprargs(ci.code), preserve_coverage, nargs, sv)
     ir = slot2reg(ir, ci, nargs, sv)
