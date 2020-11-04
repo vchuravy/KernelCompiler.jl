@@ -36,16 +36,25 @@ function resolver(name, ctx)
     return UInt64(reinterpret(UInt, ptr))
 end
 
-struct Entry
+struct Entry{F, TT}
+    f::F
     specfunc::Ptr{Cvoid}
     func::Ptr{Cvoid}
 end
+
+# Slow ABI
+function invoke(entry::Entry{F, TT}, args::TT) where {F, TT} 
+    args = Any[args...]
+    ccall(entry.func, Any, (Any, Ptr{Any}, Int32), entry.f, args, length(args))
+end
+
+(entry::Entry)(args...) = invoke(entry, args)
 
 # const compiled_cache = Dict{UInt, Any}()
 
 function jit(f::F,tt::TT=Tuple{}) where {F<:Core.Function, TT<:Type}
     fspec = FunctionSpec(f, tt, #=kernel=# false, #=name=# nothing)
-    GPUCompiler.cached_compilation(_jit, fspec)::Entry
+    GPUCompiler.cached_compilation(_jit, fspec)::Entry{F, tt}
     #  GPUCompiler.cached_compilation(compiled_cache, _jit, _link, fspec)::Entry
 end
 
@@ -80,6 +89,6 @@ function _jit(@nospecialize(fspec::FunctionSpec))
         @error "Compilation error" fspec specfunc_ptr func_ptr
     end
 
-    return Entry(specfunc_ptr, func_ptr)
+    return Entry{typeof(fspec.f), fspec.tt}(fspec.f, specfunc_ptr, func_ptr)
 end
 
