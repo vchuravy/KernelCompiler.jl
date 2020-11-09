@@ -16,7 +16,7 @@ OptimizationParams(ki::KernelInterpreter) = OptimizationParams(ki.inner)
 Core.Compiler.may_optimize(ni::KernelInterpreter) = true # TODO: Forward?
 Core.Compiler.may_compress(ni::KernelInterpreter) = true # TODO: Forward?
 Core.Compiler.may_discard_trees(ni::KernelInterpreter) = true # TODO: Forward?
-Core.Compiler.add_remark!(ni::KernelInterpreter, sv::InferenceState, msg) = Core.Compiler.add_remark!(ni, sv, msg)
+Core.Compiler.add_remark!(ni::KernelInterpreter, sv::InferenceState, msg) = Core.Compiler.add_remark!(ni.inner, sv, msg)
 
 ### codegen/interence integration
 code_cache(ki::KernelInterpreter) = WorldView(get_cache(typeof(ki.inner)), get_world_counter(ki))
