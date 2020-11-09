@@ -1,3 +1,21 @@
+# Mimicks jl_ci_cache_lookup
+# function ci_cache_lookup(lookup, method_instance, world)
+#     ci = lookup(method_instance, world, world)
+#     if ci !== nothing
+#         codeinst = ci::Core.CodeInstance
+#         src = codeinst.inferred
+#         def = codeinst.def.def
+
+#         if src !== nothing && def isa Method
+#             src = Base._uncompressed_ir(def, src)
+#         end
+#     end 
+#     if src === nothing || !(src isa Core.CodeInfo)
+#         error("Cache lookup failed to infer")
+#     end
+#     return ci, src
+# end
+
 function cpu_compile(method_instance::Core.MethodInstance, world)
     params = Base.CodegenParams(;
                 track_allocations  = false,
