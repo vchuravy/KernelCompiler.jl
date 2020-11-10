@@ -25,6 +25,12 @@ code_cache(ki::KernelInterpreter) = WorldView(get_cache(typeof(ki.inner)), get_w
 lock_mi_inference(ki::KernelInterpreter, mi::MethodInstance) = nothing
 unlock_mi_inference(ki::KernelInterpreter, mi::MethodInstance) = nothing
 
+function cpu_invalidate(replaced, max_world)
+    cache = get_cache(NativeInterpreter)
+    invalidate_backedges(cache, replaced, max_world)
+    return nothing
+end
+
 function cpu_cache_lookup(mi, min_world, max_world)
     wvc = WorldView(get_cache(NativeInterpreter), min_world, max_world)
     return cache_lookup(wvc, mi, ()->KernelInterpreter(NativeInterpreter(min_world)))

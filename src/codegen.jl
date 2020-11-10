@@ -42,16 +42,17 @@ function cpu_compile(method_instance::Core.MethodInstance, world)
     return llvm_specfunc, llvm_func, llvm_mod
 end
 
-function codegen(@nospecialize(f), @nospecialize(tt))
+function method_instance(@nospecialize(f), @nospecialize(tt), world)
     # get the method instance
-    world = Base.get_world_counter()
     meth = which(f, tt)
     sig = Base.signature_type(f, tt)::Type
     (ti, env) = ccall(:jl_type_intersection_with_env, Any,
                       (Any, Any), sig, meth.sig)::Core.SimpleVector
     meth = Base.func_for_method_checked(meth, ti, env)
-    method_instance = ccall(:jl_specializations_get_linfo, Ref{Core.MethodInstance},
-                  (Any, Any, Any, UInt), meth, ti, env, world)
+    return ccall(:jl_specializations_get_linfo, Ref{Core.MethodInstance},
+                 (Any, Any, Any, UInt), meth, ti, env, world)
+end
 
-    cpu_compile(method_instance, world)
+function codegen(@nospecialize(f), @nospecialize(tt), world = Base.get_world_counter())
+    cpu_compile(method_instance(f, tt, world), world)
 end
