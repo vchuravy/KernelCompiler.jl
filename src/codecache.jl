@@ -5,6 +5,21 @@ struct CodeCache
     CodeCache(callback) = new(Dict{MethodInstance,Vector{CodeInstance}}(), callback)
 end
 
+function Base.show(io::IO, ::MIME"text/plain", cc::CodeCache)
+    print(io, "CodeCache: ")
+    for (mi, cis) in cc.dict
+        println(io)
+        print(io, "- ")
+        show(io, mi)
+
+        for ci in cis
+            println(io)
+            print(io, "  - ")
+            print(io, (ci.min_world, ci.max_world))
+        end
+    end
+end
+
 function Core.Compiler.setindex!(cache::CodeCache, ci::CodeInstance, mi::MethodInstance)
     if !isdefined(mi, :callbacks)
         mi.callbacks = Any[cache.callback]
