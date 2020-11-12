@@ -81,29 +81,11 @@ function invalidate(cache::CodeCache, replaced::MethodInstance, max_world, depth
     # recurse to all backedges to update their valid range also
     if isdefined(replaced, :backedges)
         backedges = replaced.backedges
-        # Don't empty backedges `invalidate_method_instance` in C will do that later
+        # Don't touch/empty backedges `invalidate_method_instance` in C will do that later
         # replaced.backedges = Any[]
 
         for mi in backedges
             invalidate(cache, mi, max_world, depth + 1)
         end
     end
-end
-
-function invalidate_backedges(cache::CodeCache, replaced::MethodInstance, max_world)
-    # TODO: Julia proper does not invalidate the world-ages for `replaced`
-    #       I assume that is handled by the method table invalidations.
-    #       For now we invalidate the root as well
-
-    ## original definition:
-    # if isdefined(replaced, :backedges)
-    #     backedges = replaced.backedges
-    #     # Don't empty backedges `invalidate_backedges` in C will do that later
-    #     # replaced.backedges = Any[]
-
-    #     for mi in backedges
-    #         invalidate(cache, mi, max_world, 1)
-    #     end
-    # end
-    invalidate(cache, replaced, max_world, 0)
 end

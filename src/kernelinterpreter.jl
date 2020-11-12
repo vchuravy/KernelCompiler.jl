@@ -27,7 +27,7 @@ unlock_mi_inference(ki::KernelInterpreter, mi::MethodInstance) = nothing
 
 function cpu_invalidate(replaced, max_world)
     cache = get_cache(NativeInterpreter)
-    invalidate_backedges(cache, replaced, max_world)
+    invalidate(cache, replaced, max_world, 0)
     return nothing
 end
 
@@ -46,6 +46,8 @@ function cache_lookup(wvc, mi, interp)
         # if src is rettyp_const, the codeinfo won't cache ci.inferred
         # (because it is normally not supposed to be used ever again).
         # to avoid the need to re-infer, set that field here.
+        # This is required for being able to use `cache_lookup` as the lookup
+        # function for `CodegenParams` and `jl_create_native`.
         ci = Core.Compiler.getindex(wvc, mi)
         if ci !== nothing && ci.inferred === nothing
             ci.inferred = src
