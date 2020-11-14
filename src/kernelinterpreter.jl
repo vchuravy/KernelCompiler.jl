@@ -16,7 +16,7 @@ OptimizationParams(ki::KernelInterpreter) = OptimizationParams(ki.inner)
 Core.Compiler.may_optimize(ni::KernelInterpreter) = true # TODO: Forward?
 Core.Compiler.may_compress(ni::KernelInterpreter) = true # TODO: Forward?
 Core.Compiler.may_discard_trees(ni::KernelInterpreter) = true # TODO: Forward?
-Core.Compiler.add_remark!(ni::KernelInterpreter, sv::InferenceState, msg) = Core.Compiler.add_remark!(ni, sv, msg)
+Core.Compiler.add_remark!(ni::KernelInterpreter, sv::InferenceState, msg) = Core.Compiler.add_remark!(ni.inner, sv, msg)
 
 ### codegen/interence integration
 code_cache(ki::KernelInterpreter) = WorldView(get_cache(typeof(ki.inner)), get_world_counter(ki))
@@ -24,6 +24,12 @@ code_cache(ki::KernelInterpreter) = WorldView(get_cache(typeof(ki.inner)), get_w
 # No need to do any locking since we're not putting our results into the runtime cache
 lock_mi_inference(ki::KernelInterpreter, mi::MethodInstance) = nothing
 unlock_mi_inference(ki::KernelInterpreter, mi::MethodInstance) = nothing
+
+function cpu_invalidate(replaced, max_world)
+    cache = get_cache(NativeInterpreter)
+    invalidate(cache, replaced, max_world, 0)
+    return nothing
+end
 
 function cpu_cache_lookup(mi, min_world, max_world)
     wvc = WorldView(get_cache(NativeInterpreter), min_world, max_world)
@@ -40,6 +46,8 @@ function cache_lookup(wvc, mi, interp)
         # if src is rettyp_const, the codeinfo won't cache ci.inferred
         # (because it is normally not supposed to be used ever again).
         # to avoid the need to re-infer, set that field here.
+        # This is required for being able to use `cache_lookup` as the lookup
+        # function for `CodegenParams` and `jl_create_native`.
         ci = Core.Compiler.getindex(wvc, mi)
         if ci !== nothing && ci.inferred === nothing
             ci.inferred = src

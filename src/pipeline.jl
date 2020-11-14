@@ -7,9 +7,17 @@ function addTargetPasses!(pm, tm)
     add_transform_info!(pm, tm)
 end
 
+# TODO (Missing C-API):
+#  - https://reviews.llvm.org/D86764 adds InstSimplify
+#  - createDivRemPairs
+#  - createLoopLoadEliminationPass
+#  - createVectorCombinePass
+# TODO (Missing LLVM.jl)
+#  - AggressiveInstCombinePass
+
 # https://github.com/JuliaLang/julia/blob/2eb5da0e25756c33d1845348836a0a92984861ac/src/aotcompile.cpp#L620
 function addOptimizationPasses!(pm, tm, opt_level, lower_intrinsics, dump_native)
-    # TODO: createConstantMergePass
+    constant_merge!(pm)
     if opt_level < 2
         error("opt_level less than 2 not supported")
         return
@@ -22,8 +30,8 @@ function addOptimizationPasses!(pm, tm, opt_level, lower_intrinsics, dump_native
         basic_alias_analysis!(pm)
     end
     cfgsimplification!(pm)
-    # TODO: DCE (doesn't exist in llvm-c)
-    scalar_repl_aggregates!(pm) # SSA variant?
+    dce!(pm)
+    scalar_repl_aggregates!(pm)
 
     # mem_cpy_opt!(pm)
 
@@ -42,7 +50,7 @@ function addOptimizationPasses!(pm, tm, opt_level, lower_intrinsics, dump_native
         error("dump_native not supported")
         # TODO: createMultiversoningPass
     end
-    scalar_repl_aggregates!(pm) # SSA variant?
+    scalar_repl_aggregates!(pm)
     instruction_combining!(pm) # TODO: createInstSimplifyLegacy
     jump_threading!(pm)
 
@@ -62,18 +70,18 @@ function addOptimizationPasses!(pm, tm, opt_level, lower_intrinsics, dump_native
     # LoopRotate strips metadata from terminator, so run LowerSIMD afterwards
     lower_simdloop!(pm) # Annotate loop marked with "loopinfo" as LLVM parallel loop
     licm!(pm)
-    # TODO: createJuliaLICMPass
+    julia_licm!(pm)
     # Subsequent passes not stripping metadata from terminator
     instruction_combining!(pm) # TODO: createInstSimplifyLegacy
     ind_var_simplify!(pm)
     loop_deletion!(pm)
-    # TODO: createSimpleLoopUnroll
+    loop_unroll!(pm) # TODO: in Julia createSimpleLoopUnroll
 
     # Run our own SROA on heap objects before LLVM's
     alloc_opt!(pm)
     # Re-run SROA after loop-unrolling (useful for small loops that operate,
     # over the structure of an aggregate)
-    scalar_repl_aggregates!(pm) # SSA variant?
+    scalar_repl_aggregates!(pm)
     instruction_combining!(pm) # TODO: createInstSimplifyLegacy
 
     gvn!(pm)
@@ -98,10 +106,10 @@ function addOptimizationPasses!(pm, tm, opt_level, lower_intrinsics, dump_native
     cfgsimplification!(pm)
     loop_deletion!(pm)
     instruction_combining!(pm)
-    # TODO: createLoopVectorizePass
+    loop_vectorize!(pm)
     # TODO: createLoopLoadEliminationPass
     cfgsimplification!(pm)
-    # TODO: createSLPVectorizerPass
+    slpvectorize!(pm)
     # might need this after LLVM 11:
     # TODO: createVectorCombinePass()
 
@@ -116,7 +124,7 @@ function addOptimizationPasses!(pm, tm, opt_level, lower_intrinsics, dump_native
         gc_invariant_verifier!(pm, false)
         # Needed **before** LateLowerGCFrame on LLVM < 12
         # due to bug in `CreateAlignmentAssumption`.
-        remove_julia_addrspaces!(pm)
+        remove_ni!(pm)
         late_lower_gc_frame!(pm)
         final_lower_gc!(pm)
         # We need these two passes and the instcombine below
@@ -125,21 +133,21 @@ function addOptimizationPasses!(pm, tm, opt_level, lower_intrinsics, dump_native
         gvn!(pm)
         sccp!(pm)
         # Remove dead use of ptls
-        # TODO: DCE doesn't exist in llvm-c
+        dce!(pm)
         lower_ptls!(pm, dump_native)
         instruction_combining!(pm)
         # Clean up write barrier and ptls lowering
         cfgsimplification!(pm)
     else
-        remove_julia_addrspaces!(pm)
+        remove_ni!(pm)
     end
-    # TODO: createCombineMulAdd
-    # TODO: createDivRemPairstm[]
+    combine_mul_add!(pm)
+    # TODO: createDivRemPairs[]
 end
 
 function addMachinePasses!(pm, tm)
-    # TODO: createDemoteFloat16Pass
-    # TODO: createGVNPass
+    demote_float16!(pm)
+    gvn!(pm)
 end
 
 function run_pipeline!(mod::LLVM.Module)

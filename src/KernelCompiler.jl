@@ -9,7 +9,7 @@ using LLVM.Interop
 
 include("codecache.jl")
 const CACHE = Dict{DataType, CodeCache}()
-get_cache(ai::DataType) = get!(CodeCache, CACHE, ai)
+get_cache(ai::DataType) = CACHE[ai]
 
 include("kernelinterpreter.jl")
 include("optimize.jl")
@@ -20,6 +20,8 @@ const orc = Ref{LLVM.OrcJIT}()
 const tm  = Ref{LLVM.TargetMachine}()
 
 function __init__()
+    CACHE[NativeInterpreter] = CodeCache(cpu_invalidate)
+
     opt_level = Base.JLOptions().opt_level
     if opt_level < 2
         optlevel = LLVM.API.LLVMCodeGenLevelNone
