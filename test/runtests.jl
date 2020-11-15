@@ -29,3 +29,17 @@ thunk2 = KernelCompiler.jit(parent, Tuple{})
 
 @test thunk2() == 4
 
+import KernelCompiler: KernelFunction, workgroupsize 
+@testset "Intrinsics" begin
+    function (kernel::KernelFunction{<:Any, :saxpy})(out)
+        out[1] = workgroupsize()
+        return nothing
+    end
+
+    kernel = KernelFunction{Tuple{Int, Int}, :saxpy}((5, 6))
+    thunk = KernelCompiler.jit(kernel, Tuple{Vector{Tuple{Int, Int}}})
+
+    out = Array{Tuple{Int, Int}}(undef, 64)
+    thunk(out)
+    @test out[1] == (5, 6)
+end
