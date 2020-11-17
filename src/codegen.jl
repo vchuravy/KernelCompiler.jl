@@ -8,6 +8,11 @@ function cpu_compile(method_instance::Core.MethodInstance, world)
     # generate IR
     # TODO: Instead of extern policy integrate with Orc JIT
 
+    # popoulate the cache
+    if cpu_cache_lookup(method_instance, world, world) === nothing
+        cpu_infer(method_instance, world, world)
+    end
+
     native_code = ccall(:jl_create_native, Ptr{Cvoid},
                     (Vector{Core.MethodInstance}, Base.CodegenParams, Cint),
                     [method_instance], params, #=extern policy=# 1)

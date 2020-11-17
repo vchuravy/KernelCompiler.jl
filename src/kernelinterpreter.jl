@@ -33,25 +33,28 @@ end
 
 function cpu_cache_lookup(mi, min_world, max_world)
     wvc = WorldView(get_cache(NativeInterpreter), min_world, max_world)
-    return cache_lookup(wvc, mi, ()->KernelInterpreter(NativeInterpreter(min_world)))
+    return Core.Compiler.get(wvc, mi, nothing)
 end
 
-function cache_lookup(wvc, mi, interp)
-    if !Core.Compiler.haskey(wvc, mi)
-        interp = interp()
-        src = Core.Compiler.typeinf_ext_toplevel(interp, mi)
-        # inference populates the cache, so we don't need to jl_get_method_inferred
-        @assert Core.Compiler.haskey(wvc, mi)
+function cpu_infer(mi, min_world, max_world)
+    wvc = WorldView(get_cache(NativeInterpreter), min_world, max_world)
+    interp = KernelInterpreter(NativeInterpreter(min_world))
+    return infer(wvc, mi, interp)
+end
 
-        # if src is rettyp_const, the codeinfo won't cache ci.inferred
-        # (because it is normally not supposed to be used ever again).
-        # to avoid the need to re-infer, set that field here.
-        # This is required for being able to use `cache_lookup` as the lookup
-        # function for `CodegenParams` and `jl_create_native`.
-        ci = Core.Compiler.getindex(wvc, mi)
-        if ci !== nothing && ci.inferred === nothing
-            ci.inferred = src
-        end
+function infer(wvc, mi, interp)
+    src = Core.Compiler.typeinf_ext_toplevel(interp, mi)
+    # inference populates the cache, so we don't need to jl_get_method_inferred
+    @assert Core.Compiler.haskey(wvc, mi)
+
+    # if src is rettyp_const, the codeinfo won't cache ci.inferred
+    # (because it is normally not supposed to be used ever again).
+    # to avoid the need to re-infer, set that field here.
+    # This is required for being able to use `cache_lookup` as the lookup
+    # function for `CodegenParams` and `jl_create_native`.
+    ci = Core.Compiler.getindex(wvc, mi)
+    if ci !== nothing && ci.inferred === nothing
+        ci.inferred = src
     end
-    return Core.Compiler.getindex(wvc, mi)
+    return
 end
