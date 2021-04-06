@@ -58,3 +58,15 @@ function infer(wvc, mi, interp)
     end
     return
 end
+
+import Core.Compiler: retrieve_code_info, validate_code_in_debug_mode
+# Replace usage sited of `retrieve_code_info`, OptimizationState is one such, but in all interesting use-cases
+# it is derived from an InferenceState. There is a third one in `typeinf_ext` in case the module forbids inference.
+function InferenceState(result::InferenceResult, cached::Bool, interp::KernelInterpreter)
+    src = retrieve_code_info(result.linfo)
+    src === nothing && return nothing
+    validate_code_in_debug_mode(result.linfo, src, "lowered")
+    src = transform(interp, result.linfo, src)
+    validate_code_in_debug_mode(result.linfo, src, "transformed")
+    return InferenceState(result, src, cached, interp)
+end

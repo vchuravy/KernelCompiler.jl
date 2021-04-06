@@ -7,11 +7,14 @@ using Base.Meta
 using LLVM
 using LLVM.Interop
 
+include("intrinsics.jl")
+
 include("codecache.jl")
 const CACHE = Dict{DataType, CodeCache}()
 get_cache(ai::DataType) = CACHE[ai]
 
 include("kernelinterpreter.jl")
+include("transform.jl")
 include("optimize.jl")
 include("codegen.jl")
 
