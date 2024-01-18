@@ -3,9 +3,10 @@ const CC = Core.Compiler
 
 import .CC: SSAValue, GlobalRef
 
-struct KernelC <: CC.AbstractCompiler end
-CC.abstract_interpreter(::KernelC, world::UInt) =
-    KernelCompilerInterp(; world)
+struct KernelC{Ctx} <: CC.AbstractCompiler end
+context_type(::KernelC{Ctx}) where Ctx = Ctx
+CC.abstract_interpreter(compiler::KernelC, world::UInt) =
+    KernelCompilerInterp(compiler; world)
 
 struct KernelCompilerInterp <: CC.AbstractInterpreter
     world::UInt
@@ -14,9 +15,8 @@ struct KernelCompilerInterp <: CC.AbstractInterpreter
     inf_cache::Vector{CC.InferenceResult}
     code_cache::CC.InternalCodeCache
     compiler::KernelC
-    function KernelCompilerInterp(;
+    function KernelCompilerInterp(compiler::KernelC;
                 world::UInt = Base.get_world_counter(),
-                compiler::KernelC = KernelC(),
                 inf_params::CC.InferenceParams = CC.InferenceParams(),
                 opt_params::CC.OptimizationParams = CC.OptimizationParams(),
                 inf_cache::Vector{CC.InferenceResult} = CC.InferenceResult[],

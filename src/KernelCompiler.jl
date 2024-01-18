@@ -8,7 +8,9 @@ struct Kernel{Ctx, F}
     f::F
 end
 function (kernel::Kernel)(args...)
-    Base.invoke_within(KernelC(), kernel, args...)
+    @with Context => kernel.ctx begin
+        Base.invoke_within(KernelC{typeof(kernel.ctx)}(), kernel.f, args...)
+    end
 end
 
 include("transform.jl")

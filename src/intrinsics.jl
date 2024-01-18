@@ -1,9 +1,12 @@
 # KerneIntrinsics are only valid within a KernelFunction
 abstract type KernelIntrinsic end
 
-struct Context <: KernelIntrinsic end
-const __context__ = Context()
-(::Context)(kernel::Kernel{Ctx}) where Ctx = kernel.ctx
+const Context = Base.ScopedValue{Any}()
+__context__() = Context[]
+
+# struct Context <: KernelIntrinsic end
+# const __context__ = Context()
+# (::Context)(kernel::Kernel{Ctx}) where Ctx = kernel.ctx
 
 
 # struct WorkgroupIndex <: KernelIntrinsic end

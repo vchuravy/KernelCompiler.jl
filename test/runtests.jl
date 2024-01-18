@@ -11,8 +11,8 @@ child(x) = x+2
 
 @test parent(2) == 4
 
-# function (kernel::Kernel{<:Any, :context})()
-#     return __context__()
-# end
-# const context = Kernel{Tuple{Int, Int}, :context}((1, 1))
-# @test context() == (1,1)
+function (kernel::Kernel{<:Any, :context})()
+    return __context__()
+end
+const context = Kernel{Tuple{Int, Int}, :context}((1, 1))
+@test context() == (1,1)
