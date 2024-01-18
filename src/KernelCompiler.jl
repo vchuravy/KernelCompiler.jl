@@ -3,11 +3,17 @@ module KernelCompiler
 include("kernelinterpreter.jl")
 include("optimize.jl")
 
-struct Kernel{F}
+struct Kernel{Ctx, F}
+    ctx::Ctx
     f::F
 end
-function (kernel::Kernel{F})(args...) where F
-    Base.invoke_within(KernelC(), kernel.f, args...)
+function (kernel::Kernel)(args...)
+    Base.invoke_within(KernelC(), kernel, args...)
 end
+
+include("transform.jl")
+include("intrinsics.jl")
+
+
 
 end # module

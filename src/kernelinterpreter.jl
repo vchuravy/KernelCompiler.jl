@@ -41,7 +41,7 @@ function CC.InferenceState(result::CC.InferenceResult, cache_mode::UInt8, interp
     src = retrieve_code_info(result.linfo, world)
     src === nothing && return nothing
     maybe_validate_code(result.linfo, src, "lowered")
-    # src = transform(interp, result.linfo, src)
-    # maybe_validate_code(result.linfo, src, "transformed")
+    src = transform(interp, result.linfo, src)
+    maybe_validate_code(result.linfo, src, "transformed")
     return CC.InferenceState(result, src, cache_mode, interp)
 end
