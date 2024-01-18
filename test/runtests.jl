@@ -5,27 +5,18 @@ using Test
 parent(x) = child(x)
 child(x) = x+1
 
-thunk1 = KernelCompiler.jit(parent, Tuple{Int})
-@test thunk1 == KernelCompiler.jit(parent, Tuple{Int})
+const thunk1 = KernelCompiler.Kernel(parent)
 
 @test thunk1(2) == 3
 child(x) = x+2
 
-thunk2 = KernelCompiler.jit(parent, Tuple{Int})
-@test thunk1 != thunk2
-@test thunk2(2) == 4
+@test thunk1(2) == 4
 
 parent() = child()
 child() = 3
 
-thunk1 = KernelCompiler.jit(parent, Tuple{})
-@test thunk1 == KernelCompiler.jit(parent, Tuple{})
-
 @test thunk1() == 3
 child() = 4
 
-thunk2 = KernelCompiler.jit(parent, Tuple{})
-@test thunk1 != thunk2
-
-@test thunk2() == 4
+@test thunk1() == 4
 
