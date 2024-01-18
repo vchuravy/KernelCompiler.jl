@@ -1,31 +1,18 @@
 using KernelCompiler
 using Test
 
-# Can't run inside a testset :/
-parent(x) = child(x)
+import KernelCompiler: Kernel, __context__ 
+
 child(x) = x+1
+const parent = Kernel((1,1), (x)->child(x))
 
-thunk1 = KernelCompiler.jit(parent, Tuple{Int})
-@test thunk1 == KernelCompiler.jit(parent, Tuple{Int})
-
-@test thunk1(2) == 3
+@test parent(2) == 3
 child(x) = x+2
 
-thunk2 = KernelCompiler.jit(parent, Tuple{Int})
-@test thunk1 != thunk2
-@test thunk2(2) == 4
+@test parent(2) == 4
 
-parent() = child()
-child() = 3
-
-thunk1 = KernelCompiler.jit(parent, Tuple{})
-@test thunk1 == KernelCompiler.jit(parent, Tuple{})
-
-@test thunk1() == 3
-child() = 4
-
-thunk2 = KernelCompiler.jit(parent, Tuple{})
-@test thunk1 != thunk2
-
-@test thunk2() == 4
-
+function (kernel::Kernel{<:Any, :context})()
+    return __context__()
+end
+const context = Kernel{Tuple{Int, Int}, :context}((1, 1))
+@test context() == (1,1)
