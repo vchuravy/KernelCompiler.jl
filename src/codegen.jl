@@ -1,63 +1,235 @@
-function cpu_compile(method_instance::Core.MethodInstance, world)
-    params = Base.CodegenParams(;
-                track_allocations  = false,
-                code_coverage      = false,
-                prefer_specsig     = true,
-                lookup             = @cfunction(cpu_cache_lookup, Any, (Any, UInt, UInt)))
+#==============================================================================#
+# Native Code Emission
+#==============================================================================#
 
-    # generate IR
-    # TODO: Instead of extern policy integrate with Orc JIT
+# LLVM context helper
+function with_llvm_context(f)
+    ts_ctx = ThreadSafeContext()
+    ctx = context(ts_ctx)
+    activate(ctx)
+    try
+        f(ctx)
+    finally
+        deactivate(ctx)
+        dispose(ts_ctx)
+    end
+end
 
-    # popoulate the cache
-    if cpu_cache_lookup(method_instance, world, world) === nothing
-        cpu_infer(method_instance, world, world)
+# Callback function for codegen to look in the cache
+const _codegen_cache = Ref{Any}(nothing)
+function _codegen_lookup_cb(mi, min_world, max_world)
+    # Create a cache at the min_world for lookup
+    cache = _codegen_cache[]
+    lookup_cache = CacheView{typeof(cache).parameters[1], typeof(cache).parameters[2]}(cache.owner, min_world)
+    ci = get(lookup_cache, mi, nothing)
+    @static if VERSION < v"1.12.0-DEV.1434"
+        # Refuse to return CI without source - force re-inference before codegen
+        if ci !== nothing && ci.inferred === nothing
+            return nothing
+        end
+    end
+    return ci
+end
+
+# Global JuliaOJIT instance
+const global_jljit = Ref{Any}(nothing)
+function getglobal_jljit()
+    if global_jljit[] === nothing
+        jljit = JuliaOJIT()
+        # Add process symbol generator so Julia runtime symbols can be resolved
+        jd = JITDylib(jljit)
+        prefix = LLVM.get_prefix(jljit)
+        dg = LLVM.CreateDynamicLibrarySearchGeneratorForProcess(prefix)
+        add!(jd, dg)
+        global_jljit[] = jljit
+    end
+    return global_jljit[]
+end
+
+"""
+    julia_codegen(cache, mi, ci; argtypes=nothing, dump_llvm=false, dump_module=false)
+        -> (ir_bytes, entry_name, llvm_ir)
+
+Generate LLVM IR and return serializable intermediate result.
+Returns a tuple of (LLVM bitcode bytes, entry function name, LLVM IR text).
+The `llvm_ir` string is empty unless `dump_llvm` or `dump_module` is set.
+When `dump_llvm` is true, returns the IR of just the entry function.
+When `dump_module` is true, returns the IR of the entire module.
+
+Uses `get_codeinfos(ci)` to collect CodeInfos by walking :invoke statements (1.12+)
+or cache lookup callback (1.11). When `argtypes` is provided, uses the const-optimized
+source for the root CI via `get_codeinfos(ci, argtypes)`.
+
+This function handles codegen but does not JIT compile - use `julia_jit` for that.
+"""
+function julia_codegen(cache::CacheView, mi::Core.MethodInstance,
+                       ci::Core.CodeInstance;
+                       argtypes::Union{Vector{Any},Nothing}=nothing,
+                       dump_llvm::Bool=false,
+                       dump_module::Bool=false)
+    # Set up globals for the lookup callback
+    _codegen_cache[] = cache
+    lookup_cfunction = @cfunction(_codegen_lookup_cb, Any, (Any, UInt, UInt))
+
+    # Set up codegen parameters
+    @static if VERSION < v"1.12.0-DEV.1667"
+        params = CodegenParams(; lookup = Base.unsafe_convert(Ptr{Nothing}, lookup_cfunction))
+    else
+        params = CodegenParams()
     end
 
-    native_code = ccall(:jl_create_native, Ptr{Cvoid},
-                    (Vector{Core.MethodInstance}, Base.CodegenParams, Cint),
-                    [method_instance], params, #=extern policy=# 1)
-    @assert native_code != C_NULL
-    llvm_mod_ref = ccall(:jl_get_llvm_module, LLVM.API.LLVMModuleRef,
-                     (Ptr{Cvoid},), native_code)
-    @assert llvm_mod_ref != C_NULL
-    llvm_mod = LLVM.Module(llvm_mod_ref)
+    # Get JuliaOJIT for target configuration
+    jljit = getglobal_jljit()
 
-    # get the top-level code
-    code = cpu_cache_lookup(method_instance, world, world)
+    # Generate LLVM IR
+    with_llvm_context() do ctx
+        # Create LLVM module
+        ts_mod = ThreadSafeModule("native_compile")
 
-    # get the top-level function index
-    llvm_func_idx = Ref{Int32}(-1)
-    llvm_specfunc_idx = Ref{Int32}(-1)
-    ccall(:jl_get_function_id, Nothing,
-        (Ptr{Cvoid}, Any, Ptr{Int32}, Ptr{Int32}),
-        native_code, code, llvm_func_idx, llvm_specfunc_idx)
-    @assert llvm_func_idx[] != -1
-    @assert llvm_specfunc_idx[] != -1
+        # Configure module for native target using JuliaOJIT's settings
+        ts_mod() do mod
+            triple!(mod, triple(jljit))
+            datalayout!(mod, datalayout(jljit))
+        end
 
-    # get the top-level function)
-    llvm_func_ref = ccall(:jl_get_llvm_function, LLVM.API.LLVMValueRef,
-                    (Ptr{Cvoid}, UInt32), native_code, llvm_func_idx[]-1)
-    @assert llvm_func_ref != C_NULL
-    llvm_func = LLVM.Function(llvm_func_ref)
-    llvm_specfunc_ref = ccall(:jl_get_llvm_function, LLVM.API.LLVMValueRef,
-                        (Ptr{Cvoid}, UInt32), native_code, llvm_specfunc_idx[]-1)
-    @assert llvm_specfunc_ref != C_NULL
-    llvm_specfunc = LLVM.Function(llvm_specfunc_ref)
+        # Generate native code
+        @static if VERSION >= v"1.12.0-DEV.1823"
+            cis_vec = Any[]
+            codeinfos = argtypes !== nothing ? get_codeinfos(ci, argtypes) : get_codeinfos(ci)
+            for (ci, src) in codeinfos
+                push!(cis_vec, ci)
+                push!(cis_vec, src)
+            end
+            native_code = @ccall jl_emit_native(
+                cis_vec::Vector{Any},
+                ts_mod::LLVM.API.LLVMOrcThreadSafeModuleRef,
+                Ref(params)::Ptr{CodegenParams},
+                false::Cint
+            )::Ptr{Cvoid}
+        elseif VERSION >= v"1.12.0-DEV.1667"
+            native_code = @ccall jl_create_native(
+                [mi]::Vector{Core.MethodInstance},
+                ts_mod::LLVM.API.LLVMOrcThreadSafeModuleRef,
+                Ref(params)::Ptr{CodegenParams},
+                1::Cint, 0::Cint, 0::Cint, cache.world::Csize_t,
+                lookup_cfunction::Ptr{Cvoid}
+            )::Ptr{Cvoid}
+        else
+            # On 1.11, jl_create_native reads ci.inferred via the lookup callback.
+            # Temporarily swap with the const-seeded source if available.
+            saved_inferred = nothing
+            if argtypes !== nothing
+                const_src = get_source(ci, argtypes)
+                if const_src !== nothing
+                    saved_inferred = @atomic :monotonic ci.inferred
+                    @atomic :monotonic ci.inferred = const_src
+                end
+            end
+            native_code = C_NULL
+            try
+                native_code = @ccall jl_create_native(
+                    [mi]::Vector{Core.MethodInstance},
+                    ts_mod::LLVM.API.LLVMOrcThreadSafeModuleRef,
+                    Ref(params)::Ptr{CodegenParams},
+                    1::Cint, 0::Cint, 0::Cint, cache.world::Csize_t
+                )::Ptr{Cvoid}
+            finally
+                if saved_inferred !== nothing
+                    @atomic :monotonic ci.inferred = saved_inferred
+                end
+            end
+        end
 
-    return llvm_specfunc, llvm_func, llvm_mod
+        @assert native_code != C_NULL "Code generation failed"
+
+        # Get the ThreadSafeModule
+        llvm_mod_ref = @ccall jl_get_llvm_module(
+                native_code::Ptr{Cvoid}
+            )::LLVM.API.LLVMOrcThreadSafeModuleRef
+        @assert llvm_mod_ref != C_NULL "Failed to get LLVM module"
+
+        llvm_ts_mod = ThreadSafeModule(llvm_mod_ref)
+
+        # Get function name from CodeInstance
+        ci = get(cache, mi, nothing)
+        @assert ci !== nothing "CodeInstance not found after codegen"
+
+        func_idx = Ref{Int32}(-1)
+        specfunc_idx = Ref{Int32}(-1)
+        @ccall jl_get_function_id(native_code::Ptr{Cvoid}, ci::Any,
+               func_idx::Ptr{Int32}, specfunc_idx::Ptr{Int32})::Nothing
+
+        func_name = nothing
+        if specfunc_idx[] >= 1
+            func_ref = @ccall jl_get_llvm_function(
+                    native_code::Ptr{Cvoid},
+                    (specfunc_idx[] - 1)::UInt32
+                )::LLVM.API.LLVMValueRef
+            @assert func_ref != C_NULL
+            func_name = name(LLVM.Function(func_ref))
+        elseif func_idx[] >= 1
+            func_ref = @ccall jl_get_llvm_function(
+                    native_code::Ptr{Cvoid},
+                    (func_idx[] - 1)::UInt32
+                )::LLVM.API.LLVMValueRef
+            @assert func_ref != C_NULL
+            func_name = name(LLVM.Function(func_ref))
+        end
+
+        @assert func_name !== nothing "No compiled function found"
+
+        # Capture LLVM IR text if requested
+        llvm_ir = if dump_module
+            llvm_ts_mod() do mod
+                string(mod)
+            end
+        elseif dump_llvm
+            llvm_ts_mod() do mod
+                string(functions(mod)[func_name])
+            end
+        else
+            ""
+        end
+
+        # Serialize to bitcode
+        ir_bytes = llvm_ts_mod() do mod
+            convert(Vector{UInt8}, mod)
+        end
+
+        return (ir_bytes, func_name, llvm_ir)
+    end
 end
 
-function method_instance(@nospecialize(f), @nospecialize(tt), world)
-    # get the method instance
-    meth = which(f, tt)
-    sig = Base.signature_type(f, tt)::Type
-    (ti, env) = ccall(:jl_type_intersection_with_env, Any,
-                      (Any, Any), sig, meth.sig)::Core.SimpleVector
-    meth = Base.func_for_method_checked(meth, ti, env)
-    return ccall(:jl_specializations_get_linfo, Ref{Core.MethodInstance},
-                 (Any, Any, Any, UInt), meth, ti, env, world)
-end
+"""
+    julia_jit(cache, mi, ir_data) -> Ptr{Cvoid}
 
-function codegen(@nospecialize(f), @nospecialize(tt), world = Base.get_world_counter())
-    cpu_compile(method_instance(f, tt, world), world)
+JIT compile LLVM bitcode to a function pointer.
+
+Takes a tuple of (LLVM bitcode bytes, entry function name) as returned by `julia_codegen`.
+The `cache` and `mi` arguments are ignored but included for use as an `emit_executable` callback.
+"""
+function julia_jit(cache, mi, ir_data)
+    ir_bytes, entry_name = ir_data
+
+    jljit = getglobal_jljit()
+    jd = JITDylib(jljit)
+
+    with_llvm_context() do ctx
+        # Parse bitcode back into a module, then wrap in ThreadSafeModule
+        mod = parse(LLVM.Module, ir_bytes)
+        ts_mod = ThreadSafeModule(mod)
+
+        # Run Julia's optimization pipeline to lower intrinsics
+        ts_mod() do m
+            run!(SIMTModulePass(), m)
+            run!(JuliaPipeline(), m)
+        end
+
+        # Add to JIT
+        add!(jljit, jd, ts_mod)
+
+        # Look up the compiled function
+        addr = LLVM.lookup(jljit, entry_name)
+        return pointer(addr)
+    end
 end
